@@ -265,6 +265,8 @@ function TripForm({ initial, masters, onSave, onClose }) {
       tripOrder: 1,
       tripValue: 0,
       unit: "طن",
+      overtimeHours: 0,
+      overtimeRate: 0,
     }
   );
 
@@ -279,10 +281,11 @@ function TripForm({ initial, masters, onSave, onClose }) {
   const valueExVat = (Number(f.netWeight) || 0) * (Number(f.price) || 0);
   const valueIncVat = valueExVat * 1.15;
   const diffQty = (Number(f.deliveredQty) || 0) - (Number(f.netWeight) || 0);
+  const overtimeAmount = (Number(f.overtimeHours) || 0) * (Number(f.overtimeRate) || 0);
 
   const submit = () => {
     if (!f.date || !f.truck) return;
-    onSave({ ...f, valueExVat, valueIncVat, diffQty });
+    onSave({ ...f, valueExVat, valueIncVat, diffQty, overtimeAmount });
   };
 
   return (
@@ -358,6 +361,21 @@ function TripForm({ initial, masters, onSave, onClose }) {
             <option value="ريال">ريال</option>
           </Select>
         </Field>
+      </div>
+
+      <div className="mt-4 pt-4" style={{ borderTop: `1px dashed ${COLORS.border}` }}>
+        <h4 className="font-bold mb-3 text-sm" style={{ color: COLORS.ink }}>إضافي السائق</h4>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="ساعات الإضافي">
+            <Input type="number" value={f.overtimeHours} onChange={(e) => set("overtimeHours", e.target.value)} />
+          </Field>
+          <Field label="سعر ساعة الإضافي">
+            <Input type="number" value={f.overtimeRate} onChange={(e) => set("overtimeRate", e.target.value)} />
+          </Field>
+          <Field label="قيمة الإضافي (تلقائي)">
+            <Input value={fmtMoney(overtimeAmount)} disabled style={{ background: COLORS.cream, color: COLORS.inkSoft }} />
+          </Field>
+        </div>
       </div>
 
       <div className="flex justify-start gap-2 mt-5">
@@ -901,6 +919,7 @@ function TripsPage({ trips, masters, setModal, deleteTrip }) {
             { key: "client", label: "العميل" },
             { key: "deliveredQty", label: "الكمية المسلمة", render: (r) => fmtNum(r.deliveredQty) + " " + (r.unit || "طن") },
             { key: "valueIncVat", label: "القيمة (شامل)", render: (r) => fmtMoney(r.valueIncVat) },
+            { key: "overtimeAmount", label: "إضافي السائق", render: (r) => fmtMoney(r.overtimeAmount) },
           ]}
           rows={filtered}
           onEdit={(r) => setModal({ type: "trip", initial: r })}
@@ -936,6 +955,14 @@ function Reports({ trips, masters }) {
   const [client, setClient] = useState("");
   const [supplier, setSupplier] = useState("");
   const [item, setItem] = useState("");
+  const [driver, setDriver] = useState("");
+
+  const driverOptions = useMemo(() => {
+    const names = new Set();
+    masters.trucks.forEach((t) => t.driver && names.add(t.driver));
+    trips.forEach((t) => t.driver && names.add(t.driver));
+    return Array.from(names).sort((a, b) => a.localeCompare(b, "ar"));
+  }, [masters.trucks, trips]);
 
   const filtered = trips.filter((t) => {
     if (from && t.date < from) return false;
@@ -943,15 +970,31 @@ function Reports({ trips, masters }) {
     if (client && t.client !== client) return false;
     if (supplier && t.supplier !== supplier) return false;
     if (item && t.item !== item) return false;
+    if (driver && t.driver !== driver) return false;
     return true;
   });
 
   const totalQty = filtered.reduce((s, t) => s + (Number(t.deliveredQty) || 0), 0);
   const totalValue = filtered.reduce((s, t) => s + (Number(t.valueIncVat) || 0), 0);
+  const totalOvertime = filtered.reduce((s, t) => s + (Number(t.overtimeAmount) || 0), 0);
+
+  const driverOvertime = useMemo(() => {
+    const byDriver = {};
+    filtered.forEach((t) => {
+      if (!t.driver) return;
+      if (!byDriver[t.driver]) byDriver[t.driver] = { driver: t.driver, trips: 0, hours: 0, amount: 0 };
+      byDriver[t.driver].trips += 1;
+      byDriver[t.driver].hours += Number(t.overtimeHours) || 0;
+      byDriver[t.driver].amount += Number(t.overtimeAmount) || 0;
+    });
+    return Object.values(byDriver)
+      .filter((d) => d.hours > 0 || d.amount > 0)
+      .sort((a, b) => b.amount - a.amount);
+  }, [filtered]);
 
   const exportCsv = () => {
-    const headers = ["التاريخ", "المورد", "السيارة", "السائق", "الصنف", "العميل", "الكمية", "القيمة"];
-    const rows = filtered.map((t) => [t.date, t.supplier, t.truck, t.driver, t.item, t.client, t.deliveredQty, t.valueIncVat]);
+    const headers = ["التاريخ", "المورد", "السيارة", "السائق", "الصنف", "العميل", "الكمية", "القيمة", "ساعات الإضافي", "قيمة الإضافي"];
+    const rows = filtered.map((t) => [t.date, t.supplier, t.truck, t.driver, t.item, t.client, t.deliveredQty, t.valueIncVat, t.overtimeHours, t.overtimeAmount]);
     const csv = "\uFEFF" + [headers, ...rows].map((r) => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -966,7 +1009,7 @@ function Reports({ trips, masters }) {
     <div>
       <SectionHeader title="التقارير" sub="فلترة الرحلات حسب التاريخ والعميل والمورد والصنف" />
       <Card className="p-5 mb-4">
-        <div className="grid grid-cols-5 gap-3">
+        <div className="grid grid-cols-6 gap-3">
           <Field label="من تاريخ"><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
           <Field label="إلى تاريخ"><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
           <Field label="العميل">
@@ -987,14 +1030,40 @@ function Reports({ trips, masters }) {
               {masters.items.map((i) => <option key={i.id} value={i.name}>{i.name}</option>)}
             </Select>
           </Field>
+          <Field label="السائق">
+            <Select value={driver} onChange={(e) => setDriver(e.target.value)}>
+              <option value="">الكل</option>
+              {driverOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+            </Select>
+          </Field>
         </div>
       </Card>
 
-      <div className="grid grid-cols-3 gap-4 mb-4">
+      <div className="grid grid-cols-4 gap-4 mb-4">
         <StatCard icon={Truck} label="عدد الرحلات" value={fmtNum(filtered.length)} tint={COLORS.slate} />
         <StatCard icon={Package} label="إجمالي الكمية" value={fmtNum(totalQty) + " طن"} tint={COLORS.amber} />
         <StatCard icon={Wallet} label="إجمالي القيمة" value={fmtMoney(totalValue)} tint={COLORS.good} />
+        <StatCard icon={Wallet} label="إجمالي إضافي السائقين" value={fmtMoney(totalOvertime)} tint={COLORS.bad} />
       </div>
+
+      {driverOvertime.length > 0 && (
+        <Card className="p-5 mb-4">
+          <h3 className="font-bold mb-3 text-sm" style={{ color: COLORS.ink }}>إضافي السائقين حسب السائق</h3>
+          <DataTable
+            columns={[
+              { key: "driver", label: "السائق" },
+              { key: "trips", label: "عدد الرحلات", render: (r) => fmtNum(r.trips) },
+              { key: "hours", label: "إجمالي ساعات الإضافي", render: (r) => fmtNum(r.hours) + " ساعة" },
+              { key: "amount", label: "إجمالي قيمة الإضافي", render: (r) => fmtMoney(r.amount) },
+            ]}
+            rows={driverOvertime.map((d, i) => ({ id: d.driver || i, ...d }))}
+            onEdit={() => {}}
+            onDelete={() => {}}
+            emptyIcon={Wallet}
+            emptyText="لا يوجد إضافي مسجّل ضمن الفلاتر الحالية."
+          />
+        </Card>
+      )}
 
       <Card className="p-5">
         <div className="flex justify-end mb-3">
@@ -1005,10 +1074,13 @@ function Reports({ trips, masters }) {
             { key: "date", label: "التاريخ" },
             { key: "supplier", label: "المورد" },
             { key: "truck", label: "السيارة" },
+            { key: "driver", label: "السائق" },
             { key: "item", label: "الصنف" },
             { key: "client", label: "العميل" },
             { key: "deliveredQty", label: "الكمية", render: (r) => fmtNum(r.deliveredQty) + " طن" },
             { key: "valueIncVat", label: "القيمة", render: (r) => fmtMoney(r.valueIncVat) },
+            { key: "overtimeHours", label: "ساعات الإضافي", render: (r) => fmtNum(r.overtimeHours) },
+            { key: "overtimeAmount", label: "قيمة الإضافي", render: (r) => fmtMoney(r.overtimeAmount) },
           ]}
           rows={filtered}
           onEdit={() => {}}
