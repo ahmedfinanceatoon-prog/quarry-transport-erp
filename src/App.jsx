@@ -915,7 +915,7 @@ function Dashboard({ stats, trips, setActive, setModal }) {
 function TripsPage({ trips, masters, setModal, deleteTrip }) {
   const [q, setQ] = useState("");
   const filtered = trips.filter((t) =>
-    !q || [t.truck, t.client, t.supplier, t.item].some((v) => (v || "").toString().includes(q))
+    !q || [t.truck, t.client, t.supplier, t.item, t.ticketNo, t.receiptNo].some((v) => (v || "").toString().includes(q))
   );
   return (
     <div>
@@ -941,6 +941,8 @@ function TripsPage({ trips, masters, setModal, deleteTrip }) {
             { key: "supplier", label: "المورد" },
             { key: "truck", label: "السيارة" },
             { key: "driver", label: "السائق" },
+            { key: "ticketNo", label: "سند ميزان الكسارة" },
+            { key: "receiptNo", label: "سند الاستلام" },
             { key: "item", label: "الصنف" },
             { key: "client", label: "العميل" },
             { key: "deliveredQty", label: "الكمية المسلمة", render: (r) => fmtNum(r.deliveredQty) + " " + (r.unit || "طن") },
@@ -1022,9 +1024,9 @@ function Reports({ trips, masters }) {
   }, [filtered]);
 
   const exportCsv = () => {
-    const headers = ["التاريخ", "المورد", "السيارة", "السائق", "الصنف", "العميل", "الكمية", "قيمة الشراء", "قيمة البيع", "الربح", "ساعات الإضافي", "قيمة الإضافي"];
+    const headers = ["التاريخ", "المورد", "السيارة", "السائق", "سند ميزان الكسارة", "سند الاستلام", "الصنف", "العميل", "الكمية", "قيمة الشراء", "قيمة البيع", "الربح", "ساعات الإضافي", "قيمة الإضافي"];
     const rows = filtered.map((t) => [
-      t.date, t.supplier, t.truck, t.driver, t.item, t.client, t.deliveredQty,
+      t.date, t.supplier, t.truck, t.driver, t.ticketNo, t.receiptNo, t.item, t.client, t.deliveredQty,
       t.valueIncVat, t.saleValueIncVat, (Number(t.saleValueIncVat) || 0) - (Number(t.valueIncVat) || 0),
       t.overtimeHours, t.overtimeAmount,
     ]);
@@ -1112,6 +1114,8 @@ function Reports({ trips, masters }) {
             { key: "supplier", label: "المورد" },
             { key: "truck", label: "السيارة" },
             { key: "driver", label: "السائق" },
+            { key: "ticketNo", label: "سند ميزان الكسارة" },
+            { key: "receiptNo", label: "سند الاستلام" },
             { key: "item", label: "الصنف" },
             { key: "client", label: "العميل" },
             { key: "deliveredQty", label: "الكمية", render: (r) => fmtNum(r.deliveredQty) + " طن" },
