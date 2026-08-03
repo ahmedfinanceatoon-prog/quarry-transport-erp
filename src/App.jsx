@@ -1129,7 +1129,23 @@ function Reports({ trips, masters }) {
           onEdit={() => {}}
           onDelete={() => {}}
           emptyIcon={FileBarChart}
-          emptyText="لا توجد نتائج مطابقة للفلاتر الحالية."
+         
+        emptyText="لا توجد نتائج مطابقة للفلاتر الحالية."
+          <button onClick={() => exportTableToExcel("myTable", "report")}>
+  تصدير إلى Excel
+</button>
+
+<table id="myTable">
+  <tr>
+    <th>البيان</th>
+    <th>الكمية</th>
+  </tr>
+  <tr>
+    <td>رمل</td>
+    <td>120</td>
+  </tr>
+</table>
+
         />
       </Card>
     </div>
