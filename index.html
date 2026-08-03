@@ -9,6 +9,31 @@
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const tables = document.querySelectorAll("table");
+
+    tables.forEach((table, index) => {
+        const btn = document.createElement("button");
+        btn.textContent = "تصدير إلى Excel";
+        btn.style.margin = "10px 0";
+        btn.style.padding = "8px 14px";
+        btn.style.background = "#4CAF50";
+        btn.style.color = "#fff";
+        btn.style.border = "none";
+        btn.style.cursor = "pointer";
+
+        btn.addEventListener("click", function () {
+            const workbook = XLSX.utils.table_to_book(table, {
+                sheet: "Table_" + (index + 1)
+            });
+            XLSX.writeFile(workbook, "table_" + (index + 1) + ".xlsx");
+        });
+
+        table.insertAdjacentElement("afterend", btn);
+    });
+});
+</script>
 
   </body>
 </html>
