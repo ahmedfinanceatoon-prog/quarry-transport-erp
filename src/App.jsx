@@ -267,6 +267,7 @@ function TripForm({ initial, masters, onSave, onClose }) {
       unit: "طن",
       overtimeHours: 0,
       overtimeRate: 0,
+      salePrice: "",
     }
   );
 
@@ -282,10 +283,13 @@ function TripForm({ initial, masters, onSave, onClose }) {
   const valueIncVat = valueExVat * 1.15;
   const diffQty = (Number(f.deliveredQty) || 0) - (Number(f.netWeight) || 0);
   const overtimeAmount = (Number(f.overtimeHours) || 0) * (Number(f.overtimeRate) || 0);
+  const saleValueExVat = (Number(f.deliveredQty) || 0) * (Number(f.salePrice) || 0);
+  const saleValueIncVat = saleValueExVat * 1.15;
+  const profit = saleValueIncVat - valueIncVat;
 
   const submit = () => {
     if (!f.date || !f.truck) return;
-    onSave({ ...f, valueExVat, valueIncVat, diffQty, overtimeAmount });
+    onSave({ ...f, valueExVat, valueIncVat, diffQty, overtimeAmount, saleValueExVat, saleValueIncVat });
   };
 
   return (
@@ -318,11 +322,18 @@ function TripForm({ initial, masters, onSave, onClose }) {
           <Input type="number" value={f.netWeight} onChange={(e) => set("netWeight", e.target.value)} />
         </Field>
 
-        <Field label="سعر الشراء">
+        <Field label="سعر الشراء (من المورد)">
           <Input type="number" value={f.price} onChange={(e) => set("price", e.target.value)} />
         </Field>
         <Field label="القيمة شاملة الضريبة (تلقائي)">
           <Input value={fmtMoney(valueIncVat)} disabled style={{ background: COLORS.cream, color: COLORS.inkSoft }} />
+        </Field>
+
+        <Field label="سعر البيع للعميل (الوحدة)">
+          <Input type="number" value={f.salePrice} onChange={(e) => set("salePrice", e.target.value)} />
+        </Field>
+        <Field label="قيمة البيع شاملة الضريبة (تلقائي)">
+          <Input value={fmtMoney(saleValueIncVat)} disabled style={{ background: COLORS.cream, color: COLORS.inkSoft }} />
         </Field>
 
         <Field label="تاريخ الاستلام">
@@ -360,6 +371,13 @@ function TripForm({ initial, masters, onSave, onClose }) {
             <option value="طن">طن</option>
             <option value="ريال">ريال</option>
           </Select>
+        </Field>
+        <Field label="هامش الربح (تلقائي)">
+          <Input
+            value={fmtMoney(profit)}
+            disabled
+            style={{ background: COLORS.cream, color: profit >= 0 ? COLORS.good : COLORS.bad, fontWeight: 700 }}
+          />
         </Field>
       </div>
 
@@ -587,8 +605,9 @@ export default function App() {
     const tripsToday = trips.filter((t) => t.date === today).length;
     const tripsMonth = trips.filter((t) => (t.date || "").slice(0, 7) === thisMonth);
     const qtyMonth = tripsMonth.reduce((s, t) => s + (Number(t.deliveredQty) || 0), 0);
-    const salesMonth = tripsMonth.reduce((s, t) => s + (Number(t.deliveredQty) || 0) * (Number(t.price) || 0) * 1.15, 0);
-    const purchasesMonth = tripsMonth.reduce((s, t) => s + (Number(t.valueIncVat) || (Number(t.netWeight)||0)*(Number(t.price)||0)*1.15), 0);
+    const salesMonth = tripsMonth.reduce((s, t) => s + (Number(t.saleValueIncVat) || 0), 0);
+    const purchasesMonth = tripsMonth.reduce((s, t) => s + (Number(t.valueIncVat) || 0), 0);
+    const profitMonth = salesMonth - purchasesMonth;
 
     const byItem = {};
     trips.forEach((t) => {
@@ -605,7 +624,7 @@ export default function App() {
       return { day: d.toLocaleDateString("ar-EG", { weekday: "short" }), qty };
     });
 
-    return { tripsToday, qtyMonth, salesMonth, purchasesMonth, itemData, last7, tripsMonthCount: tripsMonth.length };
+    return { tripsToday, qtyMonth, salesMonth, purchasesMonth, profitMonth, itemData, last7, tripsMonthCount: tripsMonth.length };
   }, [trips]);
 
   if (!isConfigured) {
@@ -823,11 +842,12 @@ function Dashboard({ stats, trips, setActive, setModal }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <StatCard icon={Truck} label="رحلات اليوم" value={fmtNum(stats.tripsToday)} tint={COLORS.amber} />
         <StatCard icon={Package} label="كمية الشهر (طن)" value={fmtNum(stats.qtyMonth)} sub={`${fmtNum(stats.tripsMonthCount)} رحلة`} tint={COLORS.slate} />
         <StatCard icon={TrendingUp} label="مبيعات الشهر" value={fmtMoney(stats.salesMonth)} tint={COLORS.good} />
         <StatCard icon={TrendingDown} label="مشتريات الشهر" value={fmtMoney(stats.purchasesMonth)} tint={COLORS.bad} />
+        <StatCard icon={Wallet} label="صافي ربح الشهر" value={fmtMoney(stats.profitMonth)} tint={stats.profitMonth >= 0 ? COLORS.good : COLORS.bad} />
       </div>
 
       <div className="grid grid-cols-3 gap-4">
@@ -918,7 +938,8 @@ function TripsPage({ trips, masters, setModal, deleteTrip }) {
             { key: "item", label: "الصنف" },
             { key: "client", label: "العميل" },
             { key: "deliveredQty", label: "الكمية المسلمة", render: (r) => fmtNum(r.deliveredQty) + " " + (r.unit || "طن") },
-            { key: "valueIncVat", label: "القيمة (شامل)", render: (r) => fmtMoney(r.valueIncVat) },
+            { key: "valueIncVat", label: "قيمة الشراء", render: (r) => fmtMoney(r.valueIncVat) },
+            { key: "saleValueIncVat", label: "قيمة البيع", render: (r) => fmtMoney(r.saleValueIncVat) },
             { key: "overtimeAmount", label: "إضافي السائق", render: (r) => fmtMoney(r.overtimeAmount) },
           ]}
           rows={filtered}
@@ -976,6 +997,8 @@ function Reports({ trips, masters }) {
 
   const totalQty = filtered.reduce((s, t) => s + (Number(t.deliveredQty) || 0), 0);
   const totalValue = filtered.reduce((s, t) => s + (Number(t.valueIncVat) || 0), 0);
+  const totalSaleValue = filtered.reduce((s, t) => s + (Number(t.saleValueIncVat) || 0), 0);
+  const totalProfit = totalSaleValue - totalValue;
   const totalOvertime = filtered.reduce((s, t) => s + (Number(t.overtimeAmount) || 0), 0);
 
   const driverOvertime = useMemo(() => {
@@ -993,8 +1016,12 @@ function Reports({ trips, masters }) {
   }, [filtered]);
 
   const exportCsv = () => {
-    const headers = ["التاريخ", "المورد", "السيارة", "السائق", "الصنف", "العميل", "الكمية", "القيمة", "ساعات الإضافي", "قيمة الإضافي"];
-    const rows = filtered.map((t) => [t.date, t.supplier, t.truck, t.driver, t.item, t.client, t.deliveredQty, t.valueIncVat, t.overtimeHours, t.overtimeAmount]);
+    const headers = ["التاريخ", "المورد", "السيارة", "السائق", "الصنف", "العميل", "الكمية", "قيمة الشراء", "قيمة البيع", "الربح", "ساعات الإضافي", "قيمة الإضافي"];
+    const rows = filtered.map((t) => [
+      t.date, t.supplier, t.truck, t.driver, t.item, t.client, t.deliveredQty,
+      t.valueIncVat, t.saleValueIncVat, (Number(t.saleValueIncVat) || 0) - (Number(t.valueIncVat) || 0),
+      t.overtimeHours, t.overtimeAmount,
+    ]);
     const csv = "\uFEFF" + [headers, ...rows].map((r) => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -1039,11 +1066,15 @@ function Reports({ trips, masters }) {
         </div>
       </Card>
 
-      <div className="grid grid-cols-4 gap-4 mb-4">
+      <div className="grid grid-cols-3 gap-4 mb-4">
         <StatCard icon={Truck} label="عدد الرحلات" value={fmtNum(filtered.length)} tint={COLORS.slate} />
         <StatCard icon={Package} label="إجمالي الكمية" value={fmtNum(totalQty) + " طن"} tint={COLORS.amber} />
-        <StatCard icon={Wallet} label="إجمالي القيمة" value={fmtMoney(totalValue)} tint={COLORS.good} />
-        <StatCard icon={Wallet} label="إجمالي إضافي السائقين" value={fmtMoney(totalOvertime)} tint={COLORS.bad} />
+        <StatCard icon={Wallet} label="إجمالي قيمة الشراء" value={fmtMoney(totalValue)} tint={COLORS.bad} />
+      </div>
+      <div className="grid grid-cols-3 gap-4 mb-4">
+        <StatCard icon={TrendingUp} label="إجمالي قيمة البيع" value={fmtMoney(totalSaleValue)} tint={COLORS.good} />
+        <StatCard icon={Wallet} label="صافي الربح" value={fmtMoney(totalProfit)} tint={totalProfit >= 0 ? COLORS.good : COLORS.bad} />
+        <StatCard icon={Wallet} label="إجمالي إضافي السائقين" value={fmtMoney(totalOvertime)} tint={COLORS.slate} />
       </div>
 
       {driverOvertime.length > 0 && (
@@ -1078,7 +1109,9 @@ function Reports({ trips, masters }) {
             { key: "item", label: "الصنف" },
             { key: "client", label: "العميل" },
             { key: "deliveredQty", label: "الكمية", render: (r) => fmtNum(r.deliveredQty) + " طن" },
-            { key: "valueIncVat", label: "القيمة", render: (r) => fmtMoney(r.valueIncVat) },
+            { key: "valueIncVat", label: "قيمة الشراء", render: (r) => fmtMoney(r.valueIncVat) },
+            { key: "saleValueIncVat", label: "قيمة البيع", render: (r) => fmtMoney(r.saleValueIncVat) },
+            { key: "profit", label: "الربح", render: (r) => fmtMoney((Number(r.saleValueIncVat) || 0) - (Number(r.valueIncVat) || 0)) },
             { key: "overtimeHours", label: "ساعات الإضافي", render: (r) => fmtNum(r.overtimeHours) },
             { key: "overtimeAmount", label: "قيمة الإضافي", render: (r) => fmtMoney(r.overtimeAmount) },
           ]}
