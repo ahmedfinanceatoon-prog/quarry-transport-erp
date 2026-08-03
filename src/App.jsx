@@ -287,9 +287,15 @@ function TripForm({ initial, masters, onSave, onClose }) {
   const saleValueIncVat = saleValueExVat * 1.15;
   const profit = saleValueIncVat - valueIncVat;
 
+  const NUMERIC_FIELDS = ["netWeight", "price", "deliveredQty", "tripOrder", "tripValue", "overtimeHours", "overtimeRate", "salePrice"];
+  const DATE_FIELDS = ["receiptDate"];
+
   const submit = () => {
     if (!f.date || !f.truck) return;
-    onSave({ ...f, valueExVat, valueIncVat, diffQty, overtimeAmount, saleValueExVat, saleValueIncVat });
+    const clean = { ...f };
+    NUMERIC_FIELDS.forEach((k) => { clean[k] = Number(clean[k]) || 0; });
+    DATE_FIELDS.forEach((k) => { clean[k] = clean[k] || null; });
+    onSave({ ...clean, valueExVat, valueIncVat, diffQty, overtimeAmount, saleValueExVat, saleValueIncVat });
   };
 
   return (
