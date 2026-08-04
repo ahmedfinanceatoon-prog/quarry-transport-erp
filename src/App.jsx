@@ -2,12 +2,13 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   LayoutDashboard, Truck, Users, Factory, Layers, FileBarChart,
   Plus, Pencil, Trash2, X, Search, Download, TrendingUp, TrendingDown,
-  Package, Wallet, ChevronDown, AlertCircle, Loader2
+  Package, Wallet, ChevronDown, AlertCircle, Loader2, Printer, FileSpreadsheet
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend
 } from "recharts";
+import * as XLSX from "xlsx";
 import { isConfigured, fetchTable, upsertRow, deleteRow } from "./lib/supabase.js";
 
 /* ------------------------------------------------------------------ */
@@ -50,6 +51,55 @@ const fmtNum = (n) => {
 const fmtMoney = (n) => fmtNum(n) + " ر.س";
 
 const EMPTY_MASTERS = { trucks: [], clients: [], suppliers: [], items: [] };
+
+/* ------------------------------------------------------------------ */
+/* Print + Excel export helpers                                        */
+/* ------------------------------------------------------------------ */
+const printPage = () => {
+  window.print();
+};
+
+// يحوّل قيمة عمود إلى نص/رقم صالح للتصدير حتى لو كان العرض عنصر React (زي شارة الحالة)
+const cellExportValue = (row, col) => {
+  if (col.excelValue) return col.excelValue(row);
+  if (col.render) {
+    const rendered = col.render(row);
+    if (typeof rendered === "string" || typeof rendered === "number") return rendered;
+    return row[col.key] ?? "";
+  }
+  return row[col.key] ?? "";
+};
+
+const exportToExcel = (filename, columns, rows) => {
+  const data = rows.map((row) => {
+    const obj = {};
+    columns.forEach((c) => {
+      obj[c.label] = cellExportValue(row, c);
+    });
+    return obj;
+  });
+  const ws = XLSX.utils.json_to_sheet(data);
+  ws["!cols"] = columns.map((c) => ({ wch: Math.max(12, c.label.length + 4) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "بيانات");
+  XLSX.writeFile(wb, filename);
+};
+
+// شريط أزرار موحّد للطباعة وتصدير إكسل، يوضع مع بقية أزرار رأس الصفحة
+function PrintExportBar({ onExcel, small = true }) {
+  return (
+    <div className="flex items-center gap-2 no-print">
+      {onExcel && (
+        <Btn variant="secondary" small={small} onClick={onExcel}>
+          <FileSpreadsheet size={14} /> تصدير إكسل
+        </Btn>
+      )}
+      <Btn variant="secondary" small={small} onClick={printPage}>
+        <Printer size={14} /> طباعة
+      </Btn>
+    </div>
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /* Generic UI atoms                                                    */
@@ -120,7 +170,7 @@ function Select({ children, ...props }) {
 function Modal({ title, onClose, children, wide }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 no-print"
       style={{ background: "#00000055" }}
       onClick={onClose}
     >
@@ -194,7 +244,7 @@ const NAV = [
 function Sidebar({ active, setActive, onRefresh, refreshing }) {
   return (
     <div
-      className="h-full flex flex-col shrink-0"
+      className="h-full flex flex-col shrink-0 no-print"
       style={{ width: 216, background: COLORS.slateDark, borderLeft: `1px solid ${COLORS.border}` }}
     >
       <div className="px-5 py-6 flex items-center gap-2.5">
@@ -458,7 +508,7 @@ function DataTable({ columns, rows, onEdit, onDelete, emptyIcon, emptyText }) {
                 {c.label}
               </th>
             ))}
-            <th className="w-20"></th>
+            <th className="w-20 no-print"></th>
           </tr>
         </thead>
         <tbody>
@@ -469,7 +519,7 @@ function DataTable({ columns, rows, onEdit, onDelete, emptyIcon, emptyText }) {
                   {c.render ? c.render(row) : row[c.key]}
                 </td>
               ))}
-              <td className="py-2.5 px-3">
+              <td className="py-2.5 px-3 no-print">
                 <div className="flex gap-1 justify-end">
                   <button onClick={() => onEdit(row)} className="p-1.5 rounded-lg hover:opacity-60">
                     <Pencil size={15} color={COLORS.slate} />
@@ -651,7 +701,7 @@ export default function App() {
       <Sidebar active={active} setActive={setActive} onRefresh={manualRefresh} refreshing={refreshing} />
 
       <div className="flex-1 min-w-0 flex flex-col" style={{ height: "100vh" }}>
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-6 print-area">
           {active === "dashboard" && (
             <Dashboard stats={stats} trips={trips} setActive={setActive} setModal={setModal} />
           )}
@@ -841,7 +891,14 @@ function Dashboard({ stats, trips, setActive, setModal }) {
             {new Date().toLocaleDateString("ar-EG", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
           </p>
         </div>
-        <div className="relative z-10">
+        <div className="relative z-10 flex items-center gap-2">
+          <button
+            onClick={printPage}
+            className="no-print inline-flex items-center gap-1.5 rounded-xl font-bold px-3 py-2 text-sm hover:opacity-85"
+            style={{ background: "#ffffff1c", color: "#fff", border: "1px solid #ffffff33" }}
+          >
+            <Printer size={16} /> طباعة
+          </button>
           <Btn onClick={() => { setActive("trips"); setModal({ type: "trip" }); }}>
             <Plus size={16} /> رحلة جديدة
           </Btn>
@@ -917,15 +974,34 @@ function TripsPage({ trips, masters, setModal, deleteTrip }) {
   const filtered = trips.filter((t) =>
     !q || [t.truck, t.client, t.supplier, t.item, t.ticketNo, t.receiptNo].some((v) => (v || "").toString().includes(q))
   );
+  const columns = [
+    { key: "date", label: "التاريخ" },
+    { key: "supplier", label: "المورد" },
+    { key: "truck", label: "السيارة" },
+    { key: "driver", label: "السائق" },
+    { key: "ticketNo", label: "سند ميزان الكسارة" },
+    { key: "receiptNo", label: "سند الاستلام" },
+    { key: "item", label: "الصنف" },
+    { key: "client", label: "العميل" },
+    { key: "deliveredQty", label: "الكمية المسلمة", render: (r) => fmtNum(r.deliveredQty) + " " + (r.unit || "طن") },
+    { key: "valueIncVat", label: "قيمة الشراء", render: (r) => fmtMoney(r.valueIncVat) },
+    { key: "saleValueIncVat", label: "قيمة البيع", render: (r) => fmtMoney(r.saleValueIncVat) },
+    { key: "overtimeAmount", label: "إضافي السائق", render: (r) => fmtMoney(r.overtimeAmount) },
+  ];
   return (
     <div>
       <SectionHeader
         title="الرحلات"
         sub={`${fmtNum(trips.length)} رحلة مسجّلة`}
-        action={<Btn onClick={() => setModal({ type: "trip" })}><Plus size={16} /> رحلة جديدة</Btn>}
+        action={
+          <div className="flex items-center gap-2">
+            <PrintExportBar onExcel={() => exportToExcel("الرحلات.xlsx", columns, filtered)} />
+            <Btn onClick={() => setModal({ type: "trip" })}><Plus size={16} /> رحلة جديدة</Btn>
+          </div>
+        }
       />
       <Card className="p-5">
-        <div className="flex items-center gap-2 mb-4 rounded-xl px-3 py-2" style={{ background: COLORS.cream, border: `1px solid ${COLORS.border}`, maxWidth: 320 }}>
+        <div className="flex items-center gap-2 mb-4 rounded-xl px-3 py-2 no-print" style={{ background: COLORS.cream, border: `1px solid ${COLORS.border}`, maxWidth: 320 }}>
           <Search size={15} color={COLORS.inkSoft} />
           <input
             placeholder="بحث بالسيارة، العميل، الصنف..."
@@ -936,20 +1012,7 @@ function TripsPage({ trips, masters, setModal, deleteTrip }) {
           />
         </div>
         <DataTable
-          columns={[
-            { key: "date", label: "التاريخ" },
-            { key: "supplier", label: "المورد" },
-            { key: "truck", label: "السيارة" },
-            { key: "driver", label: "السائق" },
-            { key: "ticketNo", label: "سند ميزان الكسارة" },
-            { key: "receiptNo", label: "سند الاستلام" },
-            { key: "item", label: "الصنف" },
-            { key: "client", label: "العميل" },
-            { key: "deliveredQty", label: "الكمية المسلمة", render: (r) => fmtNum(r.deliveredQty) + " " + (r.unit || "طن") },
-            { key: "valueIncVat", label: "قيمة الشراء", render: (r) => fmtMoney(r.valueIncVat) },
-            { key: "saleValueIncVat", label: "قيمة البيع", render: (r) => fmtMoney(r.saleValueIncVat) },
-            { key: "overtimeAmount", label: "إضافي السائق", render: (r) => fmtMoney(r.overtimeAmount) },
-          ]}
+          columns={columns}
           rows={filtered}
           onEdit={(r) => setModal({ type: "trip", initial: r })}
           onDelete={deleteTrip}
@@ -967,7 +1030,16 @@ function TripsPage({ trips, masters, setModal, deleteTrip }) {
 function MasterPage({ title, sub, icon, rows, columns, onAdd, onEdit, onDelete, emptyText }) {
   return (
     <div>
-      <SectionHeader title={title} sub={sub} action={<Btn onClick={onAdd}><Plus size={16} /> إضافة</Btn>} />
+      <SectionHeader
+        title={title}
+        sub={sub}
+        action={
+          <div className="flex items-center gap-2">
+            <PrintExportBar onExcel={() => exportToExcel(`${title}.xlsx`, columns, rows)} />
+            <Btn onClick={onAdd}><Plus size={16} /> إضافة</Btn>
+          </div>
+        }
+      />
       <Card className="p-5">
         <DataTable columns={columns} rows={rows} onEdit={onEdit} onDelete={onDelete} emptyIcon={icon} emptyText={emptyText} />
       </Card>
@@ -1023,6 +1095,23 @@ function Reports({ trips, masters }) {
       .sort((a, b) => b.amount - a.amount);
   }, [filtered]);
 
+  const reportColumns = [
+    { key: "date", label: "التاريخ" },
+    { key: "supplier", label: "المورد" },
+    { key: "truck", label: "السيارة" },
+    { key: "driver", label: "السائق" },
+    { key: "ticketNo", label: "سند ميزان الكسارة" },
+    { key: "receiptNo", label: "سند الاستلام" },
+    { key: "item", label: "الصنف" },
+    { key: "client", label: "العميل" },
+    { key: "deliveredQty", label: "الكمية", render: (r) => fmtNum(r.deliveredQty) + " طن" },
+    { key: "valueIncVat", label: "قيمة الشراء", render: (r) => fmtMoney(r.valueIncVat) },
+    { key: "saleValueIncVat", label: "قيمة البيع", render: (r) => fmtMoney(r.saleValueIncVat) },
+    { key: "profit", label: "الربح", render: (r) => fmtMoney((Number(r.saleValueIncVat) || 0) - (Number(r.valueIncVat) || 0)) },
+    { key: "overtimeHours", label: "ساعات الإضافي", render: (r) => fmtNum(r.overtimeHours) },
+    { key: "overtimeAmount", label: "قيمة الإضافي", render: (r) => fmtMoney(r.overtimeAmount) },
+  ];
+
   const exportCsv = () => {
     const headers = ["التاريخ", "المورد", "السيارة", "السائق", "سند ميزان الكسارة", "سند الاستلام", "الصنف", "العميل", "الكمية", "قيمة الشراء", "قيمة البيع", "الربح", "ساعات الإضافي", "قيمة الإضافي"];
     const rows = filtered.map((t) => [
@@ -1042,8 +1131,12 @@ function Reports({ trips, masters }) {
 
   return (
     <div>
-      <SectionHeader title="التقارير" sub="فلترة الرحلات حسب التاريخ والعميل والمورد والصنف" />
-      <Card className="p-5 mb-4">
+      <SectionHeader
+        title="التقارير"
+        sub="فلترة الرحلات حسب التاريخ والعميل والمورد والصنف"
+        action={<PrintExportBar onExcel={() => exportToExcel("تقرير_الرحلات.xlsx", reportColumns, filtered)} />}
+      />
+      <Card className="p-5 mb-4 no-print">
         <div className="grid grid-cols-6 gap-3">
           <Field label="من تاريخ"><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
           <Field label="إلى تاريخ"><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
@@ -1105,47 +1198,16 @@ function Reports({ trips, masters }) {
       )}
 
       <Card className="p-5">
-        <div className="flex justify-end mb-3">
+        <div className="flex justify-end mb-3 no-print">
           <Btn variant="secondary" small onClick={exportCsv}><Download size={14} /> تصدير CSV</Btn>
         </div>
         <DataTable
-          columns={[
-            { key: "date", label: "التاريخ" },
-            { key: "supplier", label: "المورد" },
-            { key: "truck", label: "السيارة" },
-            { key: "driver", label: "السائق" },
-            { key: "ticketNo", label: "سند ميزان الكسارة" },
-            { key: "receiptNo", label: "سند الاستلام" },
-            { key: "item", label: "الصنف" },
-            { key: "client", label: "العميل" },
-            { key: "deliveredQty", label: "الكمية", render: (r) => fmtNum(r.deliveredQty) + " طن" },
-            { key: "valueIncVat", label: "قيمة الشراء", render: (r) => fmtMoney(r.valueIncVat) },
-            { key: "saleValueIncVat", label: "قيمة البيع", render: (r) => fmtMoney(r.saleValueIncVat) },
-            { key: "profit", label: "الربح", render: (r) => fmtMoney((Number(r.saleValueIncVat) || 0) - (Number(r.valueIncVat) || 0)) },
-            { key: "overtimeHours", label: "ساعات الإضافي", render: (r) => fmtNum(r.overtimeHours) },
-            { key: "overtimeAmount", label: "قيمة الإضافي", render: (r) => fmtMoney(r.overtimeAmount) },
-          ]}
+          columns={reportColumns}
           rows={filtered}
           onEdit={() => {}}
           onDelete={() => {}}
           emptyIcon={FileBarChart}
-         
-        emptyText="لا توجد نتائج مطابقة للفلاتر الحالية."
-          <button onClick={() => exportTableToExcel("myTable", "report")}>
-  تصدير إلى Excel
-</button>
-
-<table id="myTable">
-  <tr>
-    <th>البيان</th>
-    <th>الكمية</th>
-  </tr>
-  <tr>
-    <td>رمل</td>
-    <td>120</td>
-  </tr>
-</table>
-
+          emptyText="لا توجد نتائج مطابقة للفلاتر الحالية."
         />
       </Card>
     </div>
