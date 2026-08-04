@@ -29,7 +29,12 @@ jobs:
 
       - name: Install dependencies
         run: npm install
-
+- name: Debug check
+        run: |
+          echo "---- package.json ----"
+          cat package.json
+          echo "---- node_modules check ----"
+          npm ls xlsx-js-style || echo "XLSX-JS-STYLE NOT FOUND"
       - name: Build
         run: npm run build
         env:
