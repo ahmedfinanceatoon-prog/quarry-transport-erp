@@ -8,7 +8,6 @@ import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend
 } from "recharts";
-import * as XLSX from "xlsx-js-style";
 import { isConfigured, fetchTable, upsertRow, deleteRow } from "./lib/supabase.js";
 
 /* ------------------------------------------------------------------ */
