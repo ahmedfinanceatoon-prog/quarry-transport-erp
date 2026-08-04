@@ -6,3 +6,27 @@ html, body, #root {
   height: 100%;
   margin: 0;
 }
+
+/* ------------------------------------------------------------------ */
+/* Print styles                                                        */
+/* ------------------------------------------------------------------ */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  html, body, #root {
+    height: auto !important;
+    background: #fff !important;
+  }
+  .print-area {
+    overflow: visible !important;
+    height: auto !important;
+    padding: 0 !important;
+  }
+  table {
+    font-size: 11px !important;
+  }
+  * {
+    box-shadow: none !important;
+  }
+}
