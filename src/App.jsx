@@ -8,7 +8,7 @@ import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RTooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend
 } from "recharts";
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
 import { isConfigured, fetchTable, upsertRow, deleteRow } from "./lib/supabase.js";
 
 /* ------------------------------------------------------------------ */
@@ -70,16 +70,73 @@ const cellExportValue = (row, col) => {
   return row[col.key] ?? "";
 };
 
-const exportToExcel = (filename, columns, rows) => {
-  const data = rows.map((row) => {
-    const obj = {};
-    columns.forEach((c) => {
-      obj[c.label] = cellExportValue(row, c);
-    });
-    return obj;
+const BORDER_THIN = { style: "thin", color: { rgb: "D9D9D9" } };
+const CELL_BORDER = { top: BORDER_THIN, bottom: BORDER_THIN, left: BORDER_THIN, right: BORDER_THIN };
+
+const exportToExcel = (filename, columns, rows, sheetTitle) => {
+  const title = sheetTitle || filename.replace(/\.xlsx$/i, "");
+  const headerLabels = columns.map((c) => c.label);
+  const bodyRows = rows.map((row) => columns.map((c) => cellExportValue(row, c)));
+
+  // صف عنوان + صف تاريخ التصدير + صف فاضي + صف رؤوس الأعمدة + صفوف البيانات
+  const dateLine = `تاريخ التصدير: ${new Date().toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" })}`;
+  const aoa = [[title], [dateLine], [], headerLabels, ...bodyRows];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+  const lastCol = Math.max(columns.length - 1, 0);
+  ws["!merges"] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: lastCol } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: lastCol } },
+  ];
+
+  ws["!cols"] = columns.map((c, i) => {
+    const sample = bodyRows.slice(0, 200).reduce((max, r) => Math.max(max, String(r[i] ?? "").length), 0);
+    return { wch: Math.max(12, c.label.length + 4, sample + 2) };
   });
-  const ws = XLSX.utils.json_to_sheet(data);
-  ws["!cols"] = columns.map((c) => ({ wch: Math.max(12, c.label.length + 4) }));
+  ws["!rows"] = [{ hpt: 26 }, { hpt: 18 }, { hpt: 6 }, { hpt: 22 }];
+  ws["!views"] = [{ rightToLeft: true, state: "frozen", ySplit: 4 }];
+
+  const titleStyle = {
+    font: { bold: true, sz: 15, color: { rgb: "242722" } },
+    alignment: { horizontal: "center", vertical: "center" },
+  };
+  const dateStyle = {
+    font: { sz: 10, color: { rgb: "63665F" } },
+    alignment: { horizontal: "center", vertical: "center" },
+  };
+  const headerStyle = {
+    font: { bold: true, sz: 11, color: { rgb: "FFFFFF" } },
+    fill: { fgColor: { rgb: "C1791F" } },
+    alignment: { horizontal: "center", vertical: "center" },
+    border: CELL_BORDER,
+  };
+  const bodyStyle = (isEven) => ({
+    font: { sz: 10.5, color: { rgb: "242722" } },
+    fill: isEven ? { fgColor: { rgb: "F6F5F1" } } : undefined,
+    alignment: { horizontal: "center", vertical: "center" },
+    border: CELL_BORDER,
+  });
+
+  const titleRef = XLSX.utils.encode_cell({ r: 0, c: 0 });
+  if (ws[titleRef]) ws[titleRef].s = titleStyle;
+  const dateRef = XLSX.utils.encode_cell({ r: 1, c: 0 });
+  if (ws[dateRef]) ws[dateRef].s = dateStyle;
+
+  const HEADER_ROW = 3;
+  for (let c = 0; c <= lastCol; c++) {
+    const ref = XLSX.utils.encode_cell({ r: HEADER_ROW, c });
+    if (ws[ref]) ws[ref].s = headerStyle;
+  }
+  bodyRows.forEach((_, rIdx) => {
+    const r = HEADER_ROW + 1 + rIdx;
+    for (let c = 0; c <= lastCol; c++) {
+      const ref = XLSX.utils.encode_cell({ r, c });
+      if (ws[ref]) ws[ref].s = bodyStyle(rIdx % 2 === 1);
+    }
+  });
+
+  ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: HEADER_ROW, c: 0 }, e: { r: HEADER_ROW, c: lastCol } }) };
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "بيانات");
   XLSX.writeFile(wb, filename);
@@ -1076,6 +1133,7 @@ function Reports({ trips, masters }) {
   });
 
   const totalQty = filtered.reduce((s, t) => s + (Number(t.deliveredQty) || 0), 0);
+  const totalReceivedQty = filtered.reduce((s, t) => s + (Number(t.netWeight) || 0), 0);
   const totalValue = filtered.reduce((s, t) => s + (Number(t.valueIncVat) || 0), 0);
   const totalSaleValue = filtered.reduce((s, t) => s + (Number(t.saleValueIncVat) || 0), 0);
   const totalProfit = totalSaleValue - totalValue;
@@ -1104,20 +1162,23 @@ function Reports({ trips, masters }) {
     { key: "receiptNo", label: "سند الاستلام" },
     { key: "item", label: "الصنف" },
     { key: "client", label: "العميل" },
-    { key: "deliveredQty", label: "الكمية", render: (r) => fmtNum(r.deliveredQty) + " طن" },
-    { key: "valueIncVat", label: "قيمة الشراء", render: (r) => fmtMoney(r.valueIncVat) },
-    { key: "saleValueIncVat", label: "قيمة البيع", render: (r) => fmtMoney(r.saleValueIncVat) },
-    { key: "profit", label: "الربح", render: (r) => fmtMoney((Number(r.saleValueIncVat) || 0) - (Number(r.valueIncVat) || 0)) },
+    { key: "netWeight", label: "الكمية المستلمة من المورد", render: (r) => fmtNum(r.netWeight) },
+    { key: "deliveredQty", label: "الكمية المسلمة للعميل", render: (r) => fmtNum(r.deliveredQty) },
+    { key: "unit", label: "الوحدة", render: (r) => r.unit || "طن" },
+    { key: "valueIncVat", label: "قيمة الشراء", render: (r) => fmtNum(r.valueIncVat) },
+    { key: "saleValueIncVat", label: "قيمة البيع", render: (r) => fmtNum(r.saleValueIncVat) },
+    { key: "profit", label: "الربح", render: (r) => fmtNum((Number(r.saleValueIncVat) || 0) - (Number(r.valueIncVat) || 0)) },
     { key: "overtimeHours", label: "ساعات الإضافي", render: (r) => fmtNum(r.overtimeHours) },
-    { key: "overtimeAmount", label: "قيمة الإضافي", render: (r) => fmtMoney(r.overtimeAmount) },
+    { key: "overtimeAmount", label: "قيمة الإضافي", render: (r) => fmtNum(r.overtimeAmount) },
+    { key: "currency", label: "العملة", render: () => "ر.س" },
   ];
 
   const exportCsv = () => {
-    const headers = ["التاريخ", "المورد", "السيارة", "السائق", "سند ميزان الكسارة", "سند الاستلام", "الصنف", "العميل", "الكمية", "قيمة الشراء", "قيمة البيع", "الربح", "ساعات الإضافي", "قيمة الإضافي"];
+    const headers = ["التاريخ", "المورد", "السيارة", "السائق", "سند ميزان الكسارة", "سند الاستلام", "الصنف", "العميل", "الكمية المستلمة من المورد", "الكمية المسلمة للعميل", "الوحدة", "قيمة الشراء", "قيمة البيع", "الربح", "ساعات الإضافي", "قيمة الإضافي", "العملة"];
     const rows = filtered.map((t) => [
-      t.date, t.supplier, t.truck, t.driver, t.ticketNo, t.receiptNo, t.item, t.client, t.deliveredQty,
+      t.date, t.supplier, t.truck, t.driver, t.ticketNo, t.receiptNo, t.item, t.client, t.netWeight, t.deliveredQty, t.unit || "طن",
       t.valueIncVat, t.saleValueIncVat, (Number(t.saleValueIncVat) || 0) - (Number(t.valueIncVat) || 0),
-      t.overtimeHours, t.overtimeAmount,
+      t.overtimeHours, t.overtimeAmount, "ر.س",
     ]);
     const csv = "\uFEFF" + [headers, ...rows].map((r) => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -1169,12 +1230,15 @@ function Reports({ trips, masters }) {
 
       <div className="grid grid-cols-3 gap-4 mb-4">
         <StatCard icon={Truck} label="عدد الرحلات" value={fmtNum(filtered.length)} tint={COLORS.slate} />
-        <StatCard icon={Package} label="إجمالي الكمية" value={fmtNum(totalQty) + " طن"} tint={COLORS.amber} />
-        <StatCard icon={Wallet} label="إجمالي قيمة الشراء" value={fmtMoney(totalValue)} tint={COLORS.bad} />
+        <StatCard icon={Package} label="إجمالي الكمية المستلمة من المورد" value={fmtNum(totalReceivedQty) + " طن"} tint={COLORS.slateDark} />
+        <StatCard icon={Package} label="إجمالي الكمية المسلمة للعميل" value={fmtNum(totalQty) + " طن"} tint={COLORS.amber} />
       </div>
       <div className="grid grid-cols-3 gap-4 mb-4">
+        <StatCard icon={Wallet} label="إجمالي قيمة الشراء" value={fmtMoney(totalValue)} tint={COLORS.bad} />
         <StatCard icon={TrendingUp} label="إجمالي قيمة البيع" value={fmtMoney(totalSaleValue)} tint={COLORS.good} />
         <StatCard icon={Wallet} label="صافي الربح" value={fmtMoney(totalProfit)} tint={totalProfit >= 0 ? COLORS.good : COLORS.bad} />
+      </div>
+      <div className="grid grid-cols-3 gap-4 mb-4">
         <StatCard icon={Wallet} label="إجمالي إضافي السائقين" value={fmtMoney(totalOvertime)} tint={COLORS.slate} />
       </div>
 
